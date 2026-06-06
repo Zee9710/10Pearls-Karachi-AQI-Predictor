@@ -1,0 +1,17 @@
+.env
+*.env
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.venv/
+venv/
+*.joblib
+*.pkl
+*.h5
+saved_model/
+.streamlit/secrets.toml
+notebooks/.ipynb_checkpoints/
+node_modules/
+frontend/dist/
+frontend/.env

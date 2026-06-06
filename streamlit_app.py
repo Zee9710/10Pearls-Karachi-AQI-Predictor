@@ -42,6 +42,30 @@ POLLUTANTS = [
     ("CO", "carbon_monoxide"),
 ]
 
+NICE_MODEL = {
+    "ridge": "Ridge Regression",
+    "random_forest": "Random Forest",
+    "xgboost": "XGBoost",
+    "lightgbm": "LightGBM",
+    "lstm": "LSTM",
+}
+
+FEATURE_LABELS = {
+    "pm2_5": "PM2.5", "pm10": "PM10", "ozone": "Ozone",
+    "nitrogen_dioxide": "NO2", "sulphur_dioxide": "SO2", "carbon_monoxide": "CO",
+    "temperature_2m": "Temperature", "relative_humidity_2m": "Humidity",
+    "wind_speed_10m": "Wind speed", "precipitation": "Precipitation", "surface_pressure": "Pressure",
+    "hour_sin": "Hour (sin)", "hour_cos": "Hour (cos)",
+    "dow_sin": "Day-of-week (sin)", "dow_cos": "Day-of-week (cos)",
+    "month_sin": "Month (sin)", "month_cos": "Month (cos)", "is_weekend": "Weekend",
+    "aqi_lag_1h": "AQI 1h ago", "aqi_lag_24h": "AQI 24h ago",
+    "aqi_lag_48h": "AQI 48h ago", "aqi_lag_72h": "AQI 72h ago",
+    "aqi_roll24_mean": "AQI 24h avg", "aqi_roll24_std": "AQI 24h volatility",
+    "aqi_roll72_mean": "AQI 72h avg", "aqi_roll72_max": "AQI 72h max",
+    "aqi_change_24h": "AQI 24h change", "temp_humidity": "Temp x Humidity",
+    "wind_pollution": "Wind x PM2.5",
+}
+
 _S = 'width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#64748b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"'
 ICON_TEMP = f'<svg {_S}><path d="M14 14.76V3.5a2.5 2.5 0 0 0-5 0v11.26a4 4 0 1 0 5 0z"/></svg>'
 ICON_WIND = f'<svg {_S}><path d="M9.59 4.59A2 2 0 1 1 11 8H2m10.59 11.41A2 2 0 1 0 14 16H2m15.73-8.27A2.5 2.5 0 1 1 19.5 12H2"/></svg>'
@@ -73,6 +97,11 @@ def get_forecast(_df: pd.DataFrame) -> dict:
 @st.cache_data(ttl=3600)
 def get_metrics() -> dict:
     return {h: load_best_model(h)[3] for h in HORIZONS}
+
+
+@st.cache_data(ttl=3600)
+def get_champions() -> dict:
+    return {h: load_best_model(h)[2] for h in HORIZONS}
 
 
 @st.cache_data(ttl=3600)
@@ -147,6 +176,11 @@ st.markdown(
     .fc-circle { width:76px; height:76px; border-radius:50%; border:7px solid; display:flex; margin:0 auto;
                  align-items:center; justify-content:center; font-size:1.7rem; font-weight:900; color:#0f172a; }
     .fc-cat { font-size:0.82rem; font-weight:700; margin-top:12px; }
+
+    .champ { display:flex; align-items:center; gap:10px; background:#eff6ff; border:1px solid #bfdbfe;
+             border-radius:12px; padding:10px 16px; margin:4px 0 14px; font-size:0.9rem; color:#1e40af; font-weight:700; }
+    .champ .tag { background:#3b82f6; color:#fff; font-size:0.68rem; font-weight:800; letter-spacing:0.05em;
+                  padding:3px 9px; border-radius:999px; text-transform:uppercase; }
 
     .alert { border-radius:14px; padding:14px 18px; background:#fff7ed; border:1px solid #fed7aa;
              border-left:5px solid #f97316; color:#9a3412; font-weight:600; font-size:0.9rem; margin-bottom:16px; }
@@ -274,23 +308,73 @@ area = (
 )
 st.altair_chart(area, use_container_width=True)
 
-# Model performance (tucked away)
-with st.expander("Model performance (RMSE / MAE / R²)"):
+# Model performance
+with st.expander("Model performance — how the forecasters were chosen", expanded=False):
     metrics = get_metrics()
+    champions = get_champions()
     mtabs = st.tabs([f"+{h}h" for h in HORIZONS])
     for tab, h in zip(mtabs, HORIZONS):
-        rows = [
-            {"Model": name, "RMSE": round(m["rmse"], 2), "MAE": round(m["mae"], 2), "R²": round(m["r2"], 3)}
-            for name, m in metrics[h].items()
-        ]
-        tab.dataframe(pd.DataFrame(rows).sort_values("RMSE"),
-                      hide_index=True, use_container_width=True)
+        with tab:
+            champ = champions[h]
+            cm = metrics[h][champ]
+            st.markdown(
+                f'<div class="champ"><span class="tag">Champion</span>'
+                f'{NICE_MODEL.get(champ, champ)} &nbsp;·&nbsp; '
+                f'RMSE {cm["rmse"]:.2f} &nbsp;·&nbsp; MAE {cm["mae"]:.2f} &nbsp;·&nbsp; '
+                f'R² {cm["r2"]:.3f}</div>',
+                unsafe_allow_html=True,
+            )
+            mdf = pd.DataFrame([
+                {"Model": NICE_MODEL.get(n, n), "RMSE": m["rmse"],
+                 "MAE": m["mae"], "R²": m["r2"], "is_champ": n == champ}
+                for n, m in metrics[h].items()
+            ]).sort_values("RMSE")
+            bars = (
+                alt.Chart(mdf)
+                .mark_bar(cornerRadiusEnd=5, height=22)
+                .encode(
+                    x=alt.X("RMSE:Q", title="RMSE (lower is better)"),
+                    y=alt.Y("Model:N", sort="-x", title=None),
+                    color=alt.condition(alt.datum.is_champ,
+                                        alt.value("#3b82f6"), alt.value("#cbd5e1")),
+                    tooltip=[alt.Tooltip("Model:N"),
+                             alt.Tooltip("RMSE:Q", format=".2f"),
+                             alt.Tooltip("MAE:Q", format=".2f"),
+                             alt.Tooltip("R²:Q", format=".3f")],
+                )
+                .properties(height=max(120, 34 * len(mdf)))
+                .configure_view(strokeWidth=0)
+                .configure_axis(grid=True, gridColor="#eef2f7",
+                                labelColor="#64748b", titleColor="#94a3b8")
+            )
+            st.altair_chart(bars, use_container_width=True)
 
-with st.expander("What drives the forecast (SHAP feature importance)"):
-    shap_h = st.selectbox("Horizon", HORIZONS, format_func=lambda h: f"+{h}h")
+# Explainability
+with st.expander("What drives the forecast — SHAP feature importance", expanded=False):
+    shap_h = st.selectbox("Forecast horizon", HORIZONS, format_func=lambda h: f"+{h} hours")
     with st.spinner("Computing SHAP values..."):
-        imp = get_shap(shap_h, df).head(15)
-    st.bar_chart(imp, horizontal=True, color="#8b5cf6", height=400)
+        imp = get_shap(shap_h, df).head(12)
+    sdf = pd.DataFrame({
+        "Feature": [FEATURE_LABELS.get(i, i) for i in imp.index],
+        "Importance": imp.values,
+    })
+    shap_chart = (
+        alt.Chart(sdf)
+        .mark_bar(cornerRadiusEnd=5, height=20)
+        .encode(
+            x=alt.X("Importance:Q", title="Mean |SHAP value| — impact on predicted AQI"),
+            y=alt.Y("Feature:N", sort="-x", title=None),
+            color=alt.Color("Importance:Q", scale=alt.Scale(scheme="bluepurple"), legend=None),
+            tooltip=[alt.Tooltip("Feature:N"),
+                     alt.Tooltip("Importance:Q", format=".3f")],
+        )
+        .properties(height=420)
+        .configure_view(strokeWidth=0)
+        .configure_axis(grid=True, gridColor="#eef2f7",
+                        labelColor="#64748b", titleColor="#94a3b8")
+    )
+    st.altair_chart(shap_chart, use_container_width=True)
+    st.caption("Larger bars = features the model leans on most when forecasting AQI.")
 
 st.markdown(
     '<div class="foot">Data: Open-Meteo (CAMS air quality + weather) · '

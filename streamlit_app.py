@@ -27,15 +27,24 @@ except Exception:
 
 WHO_PM25_ANNUAL = 5.0
 
-# IQAir-style AQI palette: category -> (ring color, light tint, dark text)
+# AQI palette: category -> (vivid color, light tint, dark text)
 CAT = {
-    "Good": ("#A8E05F", "#eef9df", "#4d7c0f"),
-    "Moderate": ("#FDD64B", "#fef6da", "#a16207"),
-    "Unhealthy for Sensitive Groups": ("#FF9B57", "#ffeede", "#c2410c"),
-    "Unhealthy": ("#FE6A69", "#ffe1e1", "#b91c1c"),
-    "Very Unhealthy": ("#A97ABC", "#f0e6f4", "#7e22ce"),
-    "Hazardous": ("#A87383", "#f1e2e7", "#9f1239"),
+    "Good": ("#22c55e", "#eafaf0", "#15803d"),
+    "Moderate": ("#eab308", "#fef9e7", "#a16207"),
+    "Unhealthy for Sensitive Groups": ("#f97316", "#fff1e6", "#c2410c"),
+    "Unhealthy": ("#ef4444", "#fdeaea", "#b91c1c"),
+    "Very Unhealthy": ("#a855f7", "#f5ecfd", "#7e22ce"),
+    "Hazardous": ("#9f1239", "#fbe9ee", "#881337"),
 }
+
+AQI_RANGES = [
+    ("Good", "0–50"),
+    ("Moderate", "51–100"),
+    ("Unhealthy for Sensitive Groups", "101–150"),
+    ("Unhealthy", "151–200"),
+    ("Very Unhealthy", "201–300"),
+    ("Hazardous", "301+"),
+]
 
 HEALTH_MSG = {
     "Good": "Air quality is satisfactory and poses little or no risk.",
@@ -47,12 +56,12 @@ HEALTH_MSG = {
 }
 
 POLLUTANTS = [
-    ("PM2.5", "pm2_5"),
-    ("PM10", "pm10"),
-    ("Ozone", "ozone"),
-    ("NO2", "nitrogen_dioxide"),
-    ("SO2", "sulphur_dioxide"),
-    ("CO", "carbon_monoxide"),
+    ("PM2.5", "pm2_5", "#f43f5e"),
+    ("PM10", "pm10", "#f97316"),
+    ("Ozone", "ozone", "#0ea5e9"),
+    ("NO2", "nitrogen_dioxide", "#8b5cf6"),
+    ("SO2", "sulphur_dioxide", "#14b8a6"),
+    ("CO", "carbon_monoxide", "#64748b"),
 ]
 
 NICE_MODEL = {
@@ -79,10 +88,19 @@ FEATURE_LABELS = {
     "wind_pollution": "Wind x PM2.5",
 }
 
-_S = 'width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#64748b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"'
-ICON_TEMP = f'<svg {_S}><path d="M14 14.76V3.5a2.5 2.5 0 0 0-5 0v11.26a4 4 0 1 0 5 0z"/></svg>'
-ICON_WIND = f'<svg {_S}><path d="M9.59 4.59A2 2 0 1 1 11 8H2m10.59 11.41A2 2 0 1 0 14 16H2m15.73-8.27A2.5 2.5 0 1 1 19.5 12H2"/></svg>'
-ICON_DROP = f'<svg {_S}><path d="M12 2.69l5.66 5.66a8 8 0 1 1-11.31 0z"/></svg>'
+# White-stroke line icons for the gradient KPI cards
+_W = 'width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"'
+ICON_PM = f'<svg {_W}><path d="M2 12h20M2 6h14M2 18h10"/></svg>'
+ICON_TEMP = f'<svg {_W}><path d="M14 14.76V3.5a2.5 2.5 0 0 0-5 0v11.26a4 4 0 1 0 5 0z"/></svg>'
+ICON_WIND = f'<svg {_W}><path d="M9.59 4.59A2 2 0 1 1 11 8H2m10.59 11.41A2 2 0 1 0 14 16H2m15.73-8.27A2.5 2.5 0 1 1 19.5 12H2"/></svg>'
+ICON_DROP = f'<svg {_W}><path d="M12 2.69l5.66 5.66a8 8 0 1 1-11.31 0z"/></svg>'
+
+KPI_GRAD = {
+    "pm": "linear-gradient(135deg,#f43f5e,#fb7185)",
+    "temp": "linear-gradient(135deg,#f97316,#fbbf24)",
+    "wind": "linear-gradient(135deg,#06b6d4,#22d3ee)",
+    "hum": "linear-gradient(135deg,#3b82f6,#60a5fa)",
+}
 
 
 @st.cache_data(ttl=3600)
@@ -150,6 +168,10 @@ def get_shap(horizon: int, _df: pd.DataFrame):
     return pd.Series(imp, index=TABULAR_FEATURES).sort_values(ascending=False)
 
 
+def gauge_pct(aqi: float) -> float:
+    return min(aqi / 300.0, 1.0) * 100.0
+
+
 st.markdown(
     """
     <style>
@@ -158,64 +180,88 @@ st.markdown(
         font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
     }
     #MainMenu, footer, header { visibility: hidden; }
-    .stApp { background: #f4f6f9; }
-    .block-container { padding-top: 2rem; padding-bottom: 3rem; max-width: 1040px; }
+    .stApp { background:
+        radial-gradient(1200px 600px at 12% -8%, #e0ecff 0%, rgba(224,236,255,0) 55%),
+        radial-gradient(1000px 500px at 105% 0%, #f3e8ff 0%, rgba(243,232,255,0) 50%),
+        #f6f8fc; }
+    .block-container { padding-top: 1.6rem; padding-bottom: 3rem; max-width: 1180px; }
 
-    .page-title { font-size:1.7rem; font-weight:800; color:#0f172a; letter-spacing:-0.02em; margin:0; }
-    .page-sub { font-size:0.85rem; color:#64748b; margin:2px 0 18px; }
+    section[data-testid="stSidebar"] { background:#0f172a; }
+    section[data-testid="stSidebar"] * { color:#e2e8f0; }
+    .sb-brand { font-size:1.15rem; font-weight:900; color:#fff; letter-spacing:-0.02em; }
+    .sb-brand span { color:#60a5fa; }
+    .sb-sub { font-size:0.76rem; color:#94a3b8; margin:2px 0 18px; }
+    .sb-box { background:#1e293b; border:1px solid #334155; border-radius:14px; padding:13px 15px; margin-bottom:14px; }
+    .sb-k { font-size:0.68rem; text-transform:uppercase; letter-spacing:0.06em; color:#94a3b8; font-weight:700; }
+    .sb-v { font-size:0.95rem; font-weight:700; color:#f8fafc; margin-top:3px; }
+    .sb-live { display:inline-flex; align-items:center; gap:7px; font-size:0.8rem; font-weight:700; color:#86efac; }
+    .sb-live .dot { width:8px; height:8px; border-radius:50%; background:#22c55e;
+                    box-shadow:0 0 0 3px rgba(34,197,94,0.25); }
+    .sb-legend-title { font-size:0.7rem; text-transform:uppercase; letter-spacing:0.06em; color:#94a3b8; font-weight:700; margin:6px 0 8px; }
+    .lg-row { display:flex; align-items:center; gap:9px; margin:6px 0; font-size:0.82rem; color:#cbd5e1; }
+    .lg-dot { width:11px; height:11px; border-radius:3px; flex:none; }
+    .lg-rng { margin-left:auto; color:#94a3b8; font-size:0.76rem; font-weight:600; }
 
-    .iq-card { background:#fff; border:1px solid #eaeef3; border-radius:24px; padding:26px 30px;
-               box-shadow:0 6px 24px rgba(15,23,42,0.06); }
-    .iq-loc { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px;
-              border-bottom:1px solid #f1f5f9; padding-bottom:14px; margin-bottom:18px; }
-    .iq-city { font-size:1.1rem; font-weight:800; color:#0f172a; }
-    .iq-live { font-size:0.78rem; font-weight:600; color:#64748b; display:flex; align-items:center; gap:6px; }
-    .iq-live .dot { width:8px; height:8px; border-radius:50%; background:#22c55e; display:inline-block;
-                    box-shadow:0 0 0 3px rgba(34,197,94,0.18); }
+    .hero-title { font-size:1.9rem; font-weight:900; color:#0f172a; letter-spacing:-0.03em; margin:0; }
+    .hero-sub { font-size:0.88rem; color:#64748b; margin:3px 0 18px; }
 
-    .iq-main { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:26px; }
-    .iq-aqi-label { font-size:0.75rem; font-weight:700; color:#94a3b8; text-transform:uppercase; letter-spacing:0.08em; }
-    .iq-aqi-row { display:flex; align-items:center; gap:20px; margin-top:8px; }
-    .iq-circle { width:108px; height:108px; border-radius:50%; border:9px solid; display:flex;
-                 align-items:center; justify-content:center; font-size:2.6rem; font-weight:900; color:#0f172a; }
-    .iq-pill { display:inline-flex; align-items:center; gap:8px; padding:7px 14px; border-radius:999px;
-               font-size:0.92rem; font-weight:700; }
-    .iq-pill .pdot { width:9px; height:9px; border-radius:50%; }
-    .iq-pm { font-size:0.9rem; color:#334155; font-weight:600; margin-top:10px; }
-    .iq-who { font-size:0.8rem; color:#94a3b8; margin-top:2px; }
+    .card { background:#fff; border:1px solid #e8edf5; border-radius:22px;
+            box-shadow:0 10px 30px rgba(15,23,42,0.06); }
+    .gcard { padding:24px; text-align:center; height:100%; }
+    .gauge { width:188px; height:188px; border-radius:50%; margin:6px auto 0;
+             display:flex; align-items:center; justify-content:center; }
+    .gauge-inner { width:150px; height:150px; border-radius:50%; background:#fff;
+                   display:flex; flex-direction:column; align-items:center; justify-content:center; }
+    .gauge-num { font-size:3rem; font-weight:900; line-height:1; }
+    .gauge-cap { font-size:0.7rem; font-weight:800; letter-spacing:0.1em; color:#94a3b8; text-transform:uppercase; margin-top:4px; }
+    .pill { display:inline-flex; align-items:center; gap:8px; padding:8px 16px; border-radius:999px;
+            font-size:0.95rem; font-weight:800; margin-top:16px; }
+    .pill .pdot { width:9px; height:9px; border-radius:50%; }
+    .gmeta { font-size:0.82rem; color:#64748b; margin-top:12px; font-weight:600; }
 
-    .iq-weather { display:flex; gap:26px; }
-    .iq-wx { text-align:center; }
-    .iq-wx .v { font-size:1.05rem; font-weight:800; color:#0f172a; margin-top:4px; }
-    .iq-wx .k { font-size:0.72rem; color:#94a3b8; font-weight:600; text-transform:uppercase; letter-spacing:0.04em; }
+    .kpi-grid { display:grid; grid-template-columns:1fr 1fr; gap:16px; height:100%; }
+    .kpi { border-radius:20px; padding:18px 20px; color:#fff; position:relative; overflow:hidden;
+           box-shadow:0 10px 24px rgba(15,23,42,0.10); display:flex; flex-direction:column; justify-content:space-between; }
+    .kpi .ic { opacity:0.9; }
+    .kpi .kv { font-size:2rem; font-weight:900; line-height:1; margin-top:14px; }
+    .kpi .kk { font-size:0.78rem; font-weight:700; opacity:0.92; margin-top:5px; text-transform:uppercase; letter-spacing:0.04em; }
 
-    .iq-msg { margin-top:18px; padding-top:16px; border-top:1px solid #f1f5f9;
-              font-size:0.9rem; color:#475569; line-height:1.5; }
+    .sect { font-size:1.15rem; font-weight:900; color:#0f172a; margin:26px 0 14px; letter-spacing:-0.02em; }
 
-    .section { font-size:1.05rem; font-weight:800; color:#0f172a; margin:26px 0 12px; letter-spacing:-0.01em; }
-
-    .card { background:#fff; border:1px solid #eaeef3; border-radius:16px; padding:16px 18px;
-            box-shadow:0 3px 12px rgba(15,23,42,0.04); height:100%; }
-    .p-label { font-size:0.76rem; font-weight:700; color:#94a3b8; text-transform:uppercase; letter-spacing:0.05em; }
-    .p-value { font-size:1.6rem; font-weight:800; color:#0f172a; line-height:1.1; margin-top:6px; }
-    .p-unit { font-size:0.74rem; color:#cbd5e1; font-weight:600; }
-
-    .fc { background:#fff; border:1px solid #eaeef3; border-radius:18px; padding:20px 16px; text-align:center;
-          box-shadow:0 3px 12px rgba(15,23,42,0.04); }
-    .fc-day { font-size:0.82rem; font-weight:800; color:#0f172a; }
+    .fc { border-radius:20px; padding:20px 16px; text-align:center; background:#fff;
+          border:1px solid #e8edf5; box-shadow:0 8px 22px rgba(15,23,42,0.05); }
+    .fc-day { font-size:0.95rem; font-weight:900; color:#0f172a; }
     .fc-when { font-size:0.74rem; color:#94a3b8; margin-bottom:14px; }
-    .fc-circle { width:76px; height:76px; border-radius:50%; border:7px solid; display:flex; margin:0 auto;
-                 align-items:center; justify-content:center; font-size:1.7rem; font-weight:900; color:#0f172a; }
-    .fc-cat { font-size:0.82rem; font-weight:700; margin-top:12px; }
+    .fc-ring { width:92px; height:92px; border-radius:50%; margin:0 auto;
+               display:flex; align-items:center; justify-content:center; }
+    .fc-ring-in { width:72px; height:72px; border-radius:50%; background:#fff; display:flex;
+                  align-items:center; justify-content:center; font-size:1.7rem; font-weight:900; color:#0f172a; }
+    .fc-cat { font-size:0.82rem; font-weight:800; margin-top:13px; }
 
-    .champ { display:flex; align-items:center; gap:10px; background:#eff6ff; border:1px solid #bfdbfe;
-             border-radius:12px; padding:10px 16px; margin:4px 0 14px; font-size:0.9rem; color:#1e40af; font-weight:700; }
-    .champ .tag { background:#3b82f6; color:#fff; font-size:0.68rem; font-weight:800; letter-spacing:0.05em;
-                  padding:3px 9px; border-radius:999px; text-transform:uppercase; }
+    .pcard { background:#fff; border:1px solid #e8edf5; border-radius:18px; padding:16px 18px;
+             box-shadow:0 6px 18px rgba(15,23,42,0.05); }
+    .pcard .pl { font-size:0.78rem; font-weight:800; color:#0f172a; }
+    .pcard .pv { font-size:1.5rem; font-weight:900; color:#0f172a; margin-top:6px; }
+    .pcard .pu { font-size:0.72rem; color:#cbd5e1; font-weight:700; }
+    .pbar { height:6px; border-radius:999px; background:#eef2f7; margin-top:12px; overflow:hidden; }
+    .pbar span { display:block; height:100%; border-radius:999px; }
 
-    .alert { border-radius:14px; padding:14px 18px; background:#fff7ed; border:1px solid #fed7aa;
-             border-left:5px solid #f97316; color:#9a3412; font-weight:600; font-size:0.9rem; margin-bottom:16px; }
-    .foot { color:#94a3b8; font-size:0.78rem; text-align:center; margin-top:30px; }
+    .champ { display:flex; align-items:center; gap:10px; background:linear-gradient(135deg,#eff6ff,#eef2ff);
+             border:1px solid #bfdbfe; border-radius:14px; padding:12px 16px; margin:4px 0 16px;
+             font-size:0.92rem; color:#1e3a8a; font-weight:800; }
+    .champ .tag { background:#3b82f6; color:#fff; font-size:0.66rem; font-weight:900; letter-spacing:0.06em;
+                  padding:4px 10px; border-radius:999px; text-transform:uppercase; }
+
+    .alert { border-radius:16px; padding:15px 20px; background:linear-gradient(135deg,#fff7ed,#fef2f2);
+             border:1px solid #fed7aa; border-left:6px solid #f97316; color:#9a3412;
+             font-weight:700; font-size:0.92rem; margin-bottom:18px;
+             box-shadow:0 8px 22px rgba(249,115,22,0.10); }
+    .foot { color:#94a3b8; font-size:0.78rem; text-align:center; margin-top:34px; }
+
+    .stTabs [data-baseweb="tab-list"] { gap:6px; }
+    .stTabs [data-baseweb="tab"] { background:#fff; border:1px solid #e8edf5; border-radius:12px 12px 0 0;
+                                   padding:8px 18px; font-weight:700; }
+    .stTabs [aria-selected="true"] { background:#3b82f6; color:#fff !important; border-color:#3b82f6; }
     </style>
     """,
     unsafe_allow_html=True,
@@ -235,121 +281,208 @@ with st.spinner("Fetching latest air-quality data..."):
 updated = pd.Timestamp(latest["datetime"]).strftime("%a %d %b, %H:%M")
 ring, tint, txt = CAT[cat_now]
 who_mult = latest["pm2_5"] / WHO_PM25_ANNUAL
+pct = gauge_pct(aqi_now)
 
+# ---------------- Sidebar ----------------
+legend_html = "".join(
+    f'<div class="lg-row"><span class="lg-dot" style="background:{CAT[c][0]};"></span>{c}'
+    f'<span class="lg-rng">{rng}</span></div>'
+    for c, rng in AQI_RANGES
+)
+st.sidebar.markdown(
+    f"""
+    <div class="sb-brand">Air<span>Cast</span></div>
+    <div class="sb-sub">Karachi AQI intelligence dashboard</div>
+    <div class="sb-box">
+      <div class="sb-k">Location</div>
+      <div class="sb-v">Karachi, Pakistan</div>
+      <div class="sb-k" style="margin-top:10px;">Coordinates</div>
+      <div class="sb-v">24.86° N, 67.00° E</div>
+    </div>
+    <div class="sb-box">
+      <div class="sb-k">Last updated</div>
+      <div class="sb-v">{updated}</div>
+      <div style="margin-top:9px;"><span class="sb-live"><span class="dot"></span>LIVE · {source}</span></div>
+    </div>
+    <div class="sb-legend-title">AQI scale</div>
+    {legend_html}
+    """,
+    unsafe_allow_html=True,
+)
+
+# ---------------- Header ----------------
 st.markdown(
-    f'<p class="page-title">Karachi Air Quality</p>'
-    f'<div class="page-sub">3-day US-EPA AQI forecast · machine-learning models on Open-Meteo data</div>',
+    '<p class="hero-title">Karachi Air Quality</p>'
+    '<div class="hero-sub">Real-time conditions and a 3-day US-EPA AQI forecast, '
+    'powered by machine-learning models on Open-Meteo data</div>',
     unsafe_allow_html=True,
 )
 
 max_fc = max(v["predicted_aqi"] for v in forecast.values())
 if max_fc > ALERT_THRESHOLD or aqi_now > ALERT_THRESHOLD:
     st.markdown(
-        f'<div class="alert">Unhealthy air expected — AQI forecast to reach '
+        f'<div class="alert">⚠ Unhealthy air expected — AQI forecast to reach '
         f'{max_fc:.0f}. Limit outdoor exposure and consider a mask outdoors.</div>',
         unsafe_allow_html=True,
     )
 
-st.markdown(
+# ---------------- Hero row: gauge + KPI grid ----------------
+left, right = st.columns([1.04, 1.96], gap="medium")
+
+left.markdown(
     f"""
-    <div class="iq-card">
-      <div class="iq-loc">
-        <span class="iq-city">Karachi, Pakistan</span>
-        <span class="iq-live"><span class="dot"></span>LIVE · updated {updated} · source: {source}</span>
-      </div>
-      <div class="iq-main">
-        <div>
-          <div class="iq-aqi-label">US AQI</div>
-          <div class="iq-aqi-row">
-            <div class="iq-circle" style="border-color:{ring};">{aqi_now}</div>
-            <div>
-              <span class="iq-pill" style="background:{tint};color:{txt};">
-                <span class="pdot" style="background:{ring};"></span>{cat_now}</span>
-              <div class="iq-pm">PM2.5 · {latest['pm2_5']:.1f} µg/m³</div>
-              <div class="iq-who">{who_mult:.1f}× the WHO annual guideline</div>
-            </div>
-          </div>
-        </div>
-        <div class="iq-weather">
-          <div class="iq-wx">{ICON_TEMP}<div class="v">{latest['temperature_2m']:.0f}°C</div><div class="k">Temp</div></div>
-          <div class="iq-wx">{ICON_WIND}<div class="v">{latest['wind_speed_10m']:.0f}</div><div class="k">km/h</div></div>
-          <div class="iq-wx">{ICON_DROP}<div class="v">{latest['relative_humidity_2m']:.0f}%</div><div class="k">Humidity</div></div>
+    <div class="card gcard">
+      <div class="gauge" style="background:conic-gradient({ring} {pct}%, #eef2f7 {pct}% 100%);">
+        <div class="gauge-inner">
+          <div class="gauge-num" style="color:{ring};">{aqi_now}</div>
+          <div class="gauge-cap">US AQI</div>
         </div>
       </div>
-      <div class="iq-msg">{HEALTH_MSG[cat_now]}</div>
+      <div class="pill" style="background:{tint};color:{txt};">
+        <span class="pdot" style="background:{ring};"></span>{cat_now}
+      </div>
+      <div class="gmeta">PM2.5 {latest['pm2_5']:.1f} µg/m³ · {who_mult:.1f}× WHO guideline</div>
     </div>
     """,
     unsafe_allow_html=True,
 )
 
-# Pollutants
-st.markdown('<div class="section">Pollutant Concentrations</div>', unsafe_allow_html=True)
-cols = st.columns(6)
-for col, (label, key) in zip(cols, POLLUTANTS):
-    col.markdown(
-        f"""
-        <div class="card">
-          <div class="p-label">{label}</div>
-          <div class="p-value">{latest[key]:.1f}</div>
-          <div class="p-unit">µg/m³</div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
+right.markdown(
+    f"""
+    <div class="kpi-grid">
+      <div class="kpi" style="background:{KPI_GRAD['pm']};">
+        <div class="ic">{ICON_PM}</div>
+        <div><div class="kv">{latest['pm2_5']:.0f}</div><div class="kk">PM2.5 µg/m³</div></div>
+      </div>
+      <div class="kpi" style="background:{KPI_GRAD['temp']};">
+        <div class="ic">{ICON_TEMP}</div>
+        <div><div class="kv">{latest['temperature_2m']:.0f}°</div><div class="kk">Temperature</div></div>
+      </div>
+      <div class="kpi" style="background:{KPI_GRAD['wind']};">
+        <div class="ic">{ICON_WIND}</div>
+        <div><div class="kv">{latest['wind_speed_10m']:.0f}</div><div class="kk">Wind km/h</div></div>
+      </div>
+      <div class="kpi" style="background:{KPI_GRAD['hum']};">
+        <div class="ic">{ICON_DROP}</div>
+        <div><div class="kv">{latest['relative_humidity_2m']:.0f}%</div><div class="kk">Humidity</div></div>
+      </div>
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
 
-# Forecast
-st.markdown('<div class="section">3-Day Forecast</div>', unsafe_allow_html=True)
-fcols = st.columns(3)
+st.markdown(f'<div class="card" style="padding:16px 22px;margin-top:16px;'
+            f'font-size:0.92rem;color:#475569;font-weight:600;">{HEALTH_MSG[cat_now]}</div>',
+            unsafe_allow_html=True)
+
+# ---------------- Forecast ----------------
+st.markdown('<div class="sect">3-Day Forecast</div>', unsafe_allow_html=True)
+fcols = st.columns(3, gap="medium")
 for col, (h, v) in zip(fcols, sorted(forecast.items())):
     fring, ftint, ftxt = CAT[v["category"]]
+    fpct = gauge_pct(v["predicted_aqi"])
     when = pd.Timestamp(v["datetime"]).strftime("%a %d %b · %H:%M")
     col.markdown(
         f"""
         <div class="fc">
           <div class="fc-day">+{h} hours</div>
           <div class="fc-when">{when}</div>
-          <div class="fc-circle" style="border-color:{fring};">{v['predicted_aqi']:.0f}</div>
+          <div class="fc-ring" style="background:conic-gradient({fring} {fpct}%, #eef2f7 {fpct}% 100%);">
+            <div class="fc-ring-in">{v['predicted_aqi']:.0f}</div>
+          </div>
           <div class="fc-cat" style="color:{ftxt};">{v['category']}</div>
         </div>
         """,
         unsafe_allow_html=True,
     )
 
-# Historical
-st.markdown('<div class="section">Historical AQI</div>', unsafe_allow_html=True)
-days = st.radio("Window", [7, 14, 30], horizontal=True,
-                format_func=lambda d: f"{d} days", label_visibility="collapsed")
-hist = get_historical_df(df, days)
+# ---------------- Interactive trend + forecast ----------------
+st.markdown('<div class="sect">AQI Trend & Forecast</div>', unsafe_allow_html=True)
+days = st.radio("Window", [7, 14, 30], horizontal=True, index=1,
+                format_func=lambda d: f"Last {d} days", label_visibility="collapsed")
+hist = get_historical_df(df, days)[["datetime", "aqi"]].copy()
+
+fc_rows = pd.DataFrame([
+    {"datetime": pd.Timestamp(v["datetime"]), "aqi": v["predicted_aqi"]}
+    for v in forecast.values()
+])
+last_point = hist.iloc[[-1]][["datetime", "aqi"]]
+fc_line = pd.concat([last_point, fc_rows], ignore_index=True)
+
+hover = alt.selection_point(fields=["datetime"], nearest=True, on="mouseover", empty=False)
+
 area = (
-    alt.Chart(hist)
-    .mark_area(
-        line={"color": "#3b82f6", "strokeWidth": 2},
+    alt.Chart(hist).mark_area(
+        line={"color": "#3b82f6", "strokeWidth": 2.5},
         color=alt.Gradient(
             gradient="linear",
             stops=[alt.GradientStop(color="#dbeafe", offset=0),
                    alt.GradientStop(color="#3b82f6", offset=1)],
             x1=1, x2=1, y1=1, y2=0,
         ),
-    )
-    .encode(
+    ).encode(
         x=alt.X("datetime:T", title=None),
         y=alt.Y("aqi:Q", title="US AQI"),
-        tooltip=[alt.Tooltip("datetime:T", title="Time"),
-                 alt.Tooltip("aqi:Q", title="AQI", format=".0f")],
     )
-    .properties(height=300)
-    .configure_view(strokeWidth=0)
-    .configure_axis(grid=True, gridColor="#eef2f7", labelColor="#64748b", titleColor="#64748b")
 )
-st.altair_chart(area, use_container_width=True)
+threshold = (
+    alt.Chart(pd.DataFrame({"y": [ALERT_THRESHOLD]}))
+    .mark_rule(color="#ef4444", strokeDash=[6, 4], strokeWidth=1.5)
+    .encode(y="y:Q")
+)
+fc_path = (
+    alt.Chart(fc_line).mark_line(color="#a855f7", strokeWidth=2.5, strokeDash=[5, 4],
+                                 point=alt.OverlayMarkDef(color="#a855f7", size=70))
+    .encode(x="datetime:T", y="aqi:Q",
+            tooltip=[alt.Tooltip("datetime:T", title="Time"),
+                     alt.Tooltip("aqi:Q", title="Forecast AQI", format=".0f")])
+)
+points = (
+    alt.Chart(hist).mark_circle(size=60, color="#3b82f6")
+    .encode(x="datetime:T", y="aqi:Q",
+            opacity=alt.condition(hover, alt.value(1), alt.value(0)),
+            tooltip=[alt.Tooltip("datetime:T", title="Time"),
+                     alt.Tooltip("aqi:Q", title="AQI", format=".0f")])
+    .add_params(hover)
+)
+chart = (
+    (area + threshold + fc_path + points)
+    .properties(height=320)
+    .configure_view(strokeWidth=0)
+    .configure_axis(grid=True, gridColor="#eef2f7", labelColor="#64748b", titleColor="#94a3b8")
+)
+st.altair_chart(chart, use_container_width=True)
+st.caption("Solid blue = observed history · dashed purple = model forecast · red dashed line = AQI 150 (Unhealthy).")
 
-# Model performance
-with st.expander("Model performance — how the forecasters were chosen", expanded=False):
+# ---------------- Tabbed analytics ----------------
+st.markdown('<div class="sect">Details</div>', unsafe_allow_html=True)
+tab_p, tab_m, tab_s = st.tabs(["Pollutants", "Model Performance", "Feature Importance"])
+
+with tab_p:
+    pmax = {"pm2_5": 250, "pm10": 430, "ozone": 240, "nitrogen_dioxide": 200,
+            "sulphur_dioxide": 350, "carbon_monoxide": 15400}
+    pcols = st.columns(3, gap="medium")
+    for i, (label, key, color) in enumerate(POLLUTANTS):
+        val = latest[key]
+        fillpct = min(val / pmax.get(key, 300) * 100, 100)
+        pcols[i % 3].markdown(
+            f"""
+            <div class="pcard" style="margin-bottom:16px;">
+              <div class="pl">{label}</div>
+              <div class="pv">{val:.1f}</div>
+              <div class="pu">µg/m³</div>
+              <div class="pbar"><span style="width:{fillpct:.0f}%;background:{color};"></span></div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+with tab_m:
     metrics = get_metrics()
     champions = get_champions()
     mtabs = st.tabs([f"+{h}h" for h in HORIZONS])
-    for tab, h in zip(mtabs, HORIZONS):
-        with tab:
+    for mt, h in zip(mtabs, HORIZONS):
+        with mt:
             champ = champions[h]
             cm = metrics[h][champ]
             st.markdown(
@@ -365,27 +498,22 @@ with st.expander("Model performance — how the forecasters were chosen", expand
                 for n, m in metrics[h].items()
             ]).sort_values("RMSE")
             bars = (
-                alt.Chart(mdf)
-                .mark_bar(cornerRadiusEnd=5, height=22)
+                alt.Chart(mdf).mark_bar(cornerRadiusEnd=6, height=24)
                 .encode(
                     x=alt.X("RMSE:Q", title="RMSE (lower is better)"),
                     y=alt.Y("Model:N", sort="-x", title=None),
                     color=alt.condition(alt.datum.is_champ,
                                         alt.value("#3b82f6"), alt.value("#cbd5e1")),
-                    tooltip=[alt.Tooltip("Model:N"),
-                             alt.Tooltip("RMSE:Q", format=".2f"),
-                             alt.Tooltip("MAE:Q", format=".2f"),
-                             alt.Tooltip("R²:Q", format=".3f")],
+                    tooltip=[alt.Tooltip("Model:N"), alt.Tooltip("RMSE:Q", format=".2f"),
+                             alt.Tooltip("MAE:Q", format=".2f"), alt.Tooltip("R²:Q", format=".3f")],
                 )
-                .properties(height=max(120, 34 * len(mdf)))
+                .properties(height=max(130, 36 * len(mdf)))
                 .configure_view(strokeWidth=0)
-                .configure_axis(grid=True, gridColor="#eef2f7",
-                                labelColor="#64748b", titleColor="#94a3b8")
+                .configure_axis(grid=True, gridColor="#eef2f7", labelColor="#64748b", titleColor="#94a3b8")
             )
             st.altair_chart(bars, use_container_width=True)
 
-# Explainability
-with st.expander("What drives the forecast — SHAP feature importance", expanded=False):
+with tab_s:
     shap_h = st.selectbox("Forecast horizon", HORIZONS, format_func=lambda h: f"+{h} hours")
     with st.spinner("Computing SHAP values..."):
         imp = get_shap(shap_h, df).head(12)
@@ -394,19 +522,16 @@ with st.expander("What drives the forecast — SHAP feature importance", expande
         "Importance": imp.values,
     })
     shap_chart = (
-        alt.Chart(sdf)
-        .mark_bar(cornerRadiusEnd=5, height=20)
+        alt.Chart(sdf).mark_bar(cornerRadiusEnd=6, height=22)
         .encode(
             x=alt.X("Importance:Q", title="Mean |SHAP value| — impact on predicted AQI"),
             y=alt.Y("Feature:N", sort="-x", title=None),
             color=alt.Color("Importance:Q", scale=alt.Scale(scheme="bluepurple"), legend=None),
-            tooltip=[alt.Tooltip("Feature:N"),
-                     alt.Tooltip("Importance:Q", format=".3f")],
+            tooltip=[alt.Tooltip("Feature:N"), alt.Tooltip("Importance:Q", format=".3f")],
         )
         .properties(height=420)
         .configure_view(strokeWidth=0)
-        .configure_axis(grid=True, gridColor="#eef2f7",
-                        labelColor="#64748b", titleColor="#94a3b8")
+        .configure_axis(grid=True, gridColor="#eef2f7", labelColor="#64748b", titleColor="#94a3b8")
     )
     st.altair_chart(shap_chart, use_container_width=True)
     st.caption("Larger bars = features the model leans on most when forecasting AQI.")

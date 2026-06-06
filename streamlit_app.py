@@ -1,16 +1,29 @@
+import os
 from datetime import date, timedelta
 
 import altair as alt
 import numpy as np
 import pandas as pd
 import streamlit as st
+from dotenv import load_dotenv
 
 from src.aqi import aqi_category
 from src.config import HORIZONS, ALERT_THRESHOLD, TABULAR_FEATURES
 from src.feature_pipeline import run_pipeline
+from src.feature_store import read_recent
 from src.model_registry import predict_multi_horizon, load_best_model
 
 st.set_page_config(page_title="Karachi Air Quality", layout="wide")
+
+# Make Supabase credentials available whether running locally (.env) or on
+# Streamlit Cloud (st.secrets), so the app can read the Feature Store.
+load_dotenv()
+try:
+    for _k in ("SUPABASE_URL", "SUPABASE_KEY"):
+        if _k in st.secrets:
+            os.environ[_k] = st.secrets[_k]
+except Exception:
+    pass
 
 WHO_PM25_ANNUAL = 5.0
 
@@ -73,10 +86,18 @@ ICON_DROP = f'<svg {_S}><path d="M12 2.69l5.66 5.66a8 8 0 1 1-11.31 0z"/></svg>'
 
 
 @st.cache_data(ttl=3600)
-def get_current_df() -> pd.DataFrame:
+def load_data() -> tuple[pd.DataFrame, str]:
+    """Load features from the Feature Store (per spec); fall back to a live
+    Open-Meteo fetch so the app still works without Supabase credentials."""
+    try:
+        df = read_recent(n=1000)
+        if not df.empty:
+            return df, "Feature Store"
+    except Exception:
+        pass
     end = date.today()
     start = end - timedelta(days=34)
-    return run_pipeline(start.isoformat(), end.isoformat())
+    return run_pipeline(start.isoformat(), end.isoformat()), "Live Open-Meteo"
 
 
 def get_historical_df(df: pd.DataFrame, days: int) -> pd.DataFrame:
@@ -191,7 +212,7 @@ st.markdown(
 )
 
 with st.spinner("Fetching latest air-quality data..."):
-    df = get_current_df()
+    df, source = load_data()
     latest = df.iloc[-1]
     aqi_now = int(latest["aqi"])
     cat_now = aqi_category(aqi_now)
@@ -220,7 +241,7 @@ st.markdown(
     <div class="iq-card">
       <div class="iq-loc">
         <span class="iq-city">Karachi, Pakistan</span>
-        <span class="iq-live"><span class="dot"></span>LIVE · updated {updated}</span>
+        <span class="iq-live"><span class="dot"></span>LIVE · updated {updated} · source: {source}</span>
       </div>
       <div class="iq-main">
         <div>

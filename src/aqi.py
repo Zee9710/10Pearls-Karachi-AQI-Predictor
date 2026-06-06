@@ -59,13 +59,16 @@ _CO_UGM3_PER_PPM = 1145.6
 
 
 def _sub_index(concentration: float, breakpoints: list) -> int:
-    for c_lo, c_hi, aqi_lo, aqi_hi in breakpoints:
-        if c_lo <= concentration <= c_hi:
-            return round(
-                (aqi_hi - aqi_lo) / (c_hi - c_lo) * (concentration - c_lo) + aqi_lo
-            )
     if concentration < breakpoints[0][0]:
         return 0
+    # Bands are contiguous: match the first band whose upper bound covers the
+    # value. Raw float concentrations can fall in the tenth-of-a-unit gaps
+    # between EPA bands (e.g. 12.0–12.1); clamp those up into the next band
+    # rather than treating them as off-scale.
+    for c_lo, c_hi, aqi_lo, aqi_hi in breakpoints:
+        if concentration <= c_hi:
+            c = max(concentration, c_lo)
+            return round((aqi_hi - aqi_lo) / (c_hi - c_lo) * (c - c_lo) + aqi_lo)
     return 500
 
 

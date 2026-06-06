@@ -10,6 +10,9 @@ venv/
 *.pkl
 *.h5
 saved_model/
+# Trained models are committed to git (see daily-train workflow); un-ignore them
+!models/
+!models/**
 .streamlit/secrets.toml
 notebooks/.ipynb_checkpoints/
 node_modules/

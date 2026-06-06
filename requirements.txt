@@ -2,8 +2,6 @@ pandas==2.2.2
 numpy==1.26.4
 requests==2.32.3
 python-dotenv==1.0.1
-hopsworks[python]==4.7.5
-pyarrow
 scikit-learn==1.5.0
 xgboost==2.1.0
 lightgbm==4.4.0

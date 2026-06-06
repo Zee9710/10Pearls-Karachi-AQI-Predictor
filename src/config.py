@@ -8,13 +8,7 @@ LONGITUDE = 67.0011
 TIMEZONE = "Asia/Karachi"
 CITY = "Karachi"
 
-HOPSWORKS_PROJECT = os.getenv("HOPSWORKS_PROJECT", "karachi_aqi")
-HOPSWORKS_API_KEY = os.getenv("HOPSWORKS_API_KEY")
-
-FEATURE_GROUP_NAME = "karachi_aqi_features"
-FEATURE_GROUP_VERSION = 1
-FEATURE_VIEW_NAME = "aqi_training_view"
-FEATURE_VIEW_VERSION = 1
+MODELS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "models")
 
 HORIZONS = [24, 48, 72]
 ALERT_THRESHOLD = 150

@@ -1,28 +1,17 @@
 import os
 import json
-import tempfile
+import shutil
 import joblib
 import numpy as np
 import pandas as pd
-import hopsworks
 from sklearn.linear_model import RidgeCV
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
 
 from src.config import (
-    HOPSWORKS_API_KEY, HOPSWORKS_PROJECT,
-    FEATURE_GROUP_NAME, FEATURE_GROUP_VERSION,
-    FEATURE_VIEW_NAME, FEATURE_VIEW_VERSION,
-    HORIZONS, TABULAR_FEATURES, LSTM_RAW_FEATURES,
+    MODELS_DIR, HORIZONS, TABULAR_FEATURES, LSTM_RAW_FEATURES,
 )
-
-
-def _get_project():
-    return hopsworks.login(
-        api_key_value=HOPSWORKS_API_KEY,
-        project=HOPSWORKS_PROJECT,
-    )
 
 
 def load_training_data() -> pd.DataFrame:
@@ -49,32 +38,34 @@ def _evaluate(model, X_test, y_test, scaler):
     }
 
 
-def _register_sklearn_model(project, name, model, scaler, metrics, model_type_str, all_metrics=None):
-    mr = project.get_model_registry()
-    with tempfile.TemporaryDirectory() as tmpdir:
-        joblib.dump(model, os.path.join(tmpdir, "model.pkl"))
-        joblib.dump(scaler, os.path.join(tmpdir, "scaler.pkl"))
-        info = {"model_type": model_type_str, "features": TABULAR_FEATURES}
-        if all_metrics:
-            info["all_metrics"] = all_metrics
-        with open(os.path.join(tmpdir, "model_info.json"), "w") as f:
-            json.dump(info, f)
-        hw_model = mr.python.create_model(name=name, metrics=metrics)
-        hw_model.save(tmpdir)
+def _model_dir(name: str) -> str:
+    d = os.path.join(MODELS_DIR, name)
+    if os.path.exists(d):
+        shutil.rmtree(d)
+    os.makedirs(d, exist_ok=True)
+    return d
 
 
-def _register_lstm_model(project, name, keras_model, scaler, metrics, all_metrics=None):
-    mr = project.get_model_registry()
-    with tempfile.TemporaryDirectory() as tmpdir:
-        keras_model.save(os.path.join(tmpdir, "lstm_model"))
-        joblib.dump(scaler, os.path.join(tmpdir, "lstm_scaler.pkl"))
-        info = {"model_type": "lstm", "features": LSTM_RAW_FEATURES}
-        if all_metrics:
-            info["all_metrics"] = all_metrics
-        with open(os.path.join(tmpdir, "model_info.json"), "w") as f:
-            json.dump(info, f)
-        hw_model = mr.tensorflow.create_model(name=name, metrics=metrics)
-        hw_model.save(tmpdir)
+def _register_sklearn_model(name, model, scaler, metrics, model_type_str, all_metrics=None):
+    d = _model_dir(name)
+    joblib.dump(model, os.path.join(d, "model.pkl"))
+    joblib.dump(scaler, os.path.join(d, "scaler.pkl"))
+    info = {"model_type": model_type_str, "features": TABULAR_FEATURES, "metrics": metrics}
+    if all_metrics:
+        info["all_metrics"] = all_metrics
+    with open(os.path.join(d, "model_info.json"), "w") as f:
+        json.dump(info, f)
+
+
+def _register_lstm_model(name, keras_model, scaler, metrics, all_metrics=None):
+    d = _model_dir(name)
+    keras_model.save(os.path.join(d, "lstm_model.keras"))
+    joblib.dump(scaler, os.path.join(d, "lstm_scaler.pkl"))
+    info = {"model_type": "lstm", "features": LSTM_RAW_FEATURES, "metrics": metrics}
+    if all_metrics:
+        info["all_metrics"] = all_metrics
+    with open(os.path.join(d, "model_info.json"), "w") as f:
+        json.dump(info, f)
 
 
 def _build_lstm_sequences(df, horizon):
@@ -132,7 +123,7 @@ def _train_lstm(df, horizon, split_idx):
     return model, scaler, metrics
 
 
-def train_for_horizon(df: pd.DataFrame, horizon: int, project) -> dict:
+def train_for_horizon(df: pd.DataFrame, horizon: int) -> dict:
     from xgboost import XGBRegressor
     from lightgbm import LGBMRegressor
 
@@ -207,12 +198,12 @@ def train_for_horizon(df: pd.DataFrame, horizon: int, project) -> dict:
     model_name = f"aqi_best_{horizon}h"
     if best_name == "lstm":
         _register_lstm_model(
-            project, model_name, lstm_model, lstm_scaler,
+            model_name, lstm_model, lstm_scaler,
             all_metrics["lstm"], all_metrics=all_metrics,
         )
     else:
         _register_sklearn_model(
-            project, model_name, best_model, best_scaler,
+            model_name, best_model, best_scaler,
             all_metrics[best_name], best_name, all_metrics=all_metrics,
         )
 
@@ -221,11 +212,10 @@ def train_for_horizon(df: pd.DataFrame, horizon: int, project) -> dict:
 
 
 def run_training():
-    project = _get_project()
     df = load_training_data()
     for h in HORIZONS:
         print(f"Training horizon +{h}h ...")
-        train_for_horizon(df, h, project)
+        train_for_horizon(df, h)
 
 
 if __name__ == "__main__":

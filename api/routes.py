@@ -3,7 +3,7 @@ from datetime import datetime, timedelta
 import numpy as np
 
 from src.model_registry import (
-    predict_multi_horizon, load_historical_features, load_best_model, _get_project,
+    predict_multi_horizon, load_historical_features, load_best_model,
 )
 from src.feature_pipeline import run_pipeline
 from src.aqi import aqi_category
@@ -64,10 +64,9 @@ def historical():
 
 @bp.route("/metrics")
 def metrics():
-    project = _get_project()
     result = {}
     for h in HORIZONS:
-        _, _, _, all_metrics = load_best_model(project, h)
+        _, _, _, all_metrics = load_best_model(h)
         result[str(h)] = all_metrics
     return jsonify(result)
 
@@ -76,8 +75,7 @@ def metrics():
 def shap_endpoint():
     import shap
     horizon = request.args.get("horizon", 24, type=int)
-    project = _get_project()
-    model, scaler, model_type, _ = load_best_model(project, horizon)
+    model, scaler, model_type, _ = load_best_model(horizon)
 
     df = _get_current_df()
     feat_cols = LSTM_RAW_FEATURES if model_type == "lstm" else TABULAR_FEATURES
@@ -109,8 +107,7 @@ def shap_endpoint():
 def lime_endpoint():
     from lime import lime_tabular
     horizon = request.args.get("horizon", 24, type=int)
-    project = _get_project()
-    model, scaler, model_type, _ = load_best_model(project, horizon)
+    model, scaler, model_type, _ = load_best_model(horizon)
 
     df = _get_current_df()
     feat_cols = LSTM_RAW_FEATURES if model_type == "lstm" else TABULAR_FEATURES

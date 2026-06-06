@@ -3,26 +3,15 @@ import json
 import joblib
 import numpy as np
 import pandas as pd
-import hopsworks
 
 from src.config import (
-    HOPSWORKS_API_KEY, HOPSWORKS_PROJECT,
-    HORIZONS, TABULAR_FEATURES, LSTM_RAW_FEATURES, LSTM_SEQ_LEN,
+    MODELS_DIR, HORIZONS, TABULAR_FEATURES, LSTM_RAW_FEATURES, LSTM_SEQ_LEN,
 )
 from src.aqi import aqi_category
 
 
-def _get_project():
-    return hopsworks.login(
-        api_key_value=HOPSWORKS_API_KEY,
-        project=HOPSWORKS_PROJECT,
-    )
-
-
-def load_best_model(project, horizon: int):
-    mr = project.get_model_registry()
-    hw_model = mr.get_best_model(f"aqi_best_{horizon}h", metric="rmse", direction="min")
-    model_dir = hw_model.download()
+def load_best_model(horizon: int):
+    model_dir = os.path.join(MODELS_DIR, f"aqi_best_{horizon}h")
 
     info_path = os.path.join(model_dir, "model_info.json")
     with open(info_path) as f:
@@ -32,7 +21,7 @@ def load_best_model(project, horizon: int):
 
     if model_type == "lstm":
         import tensorflow as tf
-        model = tf.keras.models.load_model(os.path.join(model_dir, "lstm_model"))
+        model = tf.keras.models.load_model(os.path.join(model_dir, "lstm_model.keras"))
         scaler = joblib.load(os.path.join(model_dir, "lstm_scaler.pkl"))
     else:
         model = joblib.load(os.path.join(model_dir, "model.pkl"))
@@ -58,13 +47,12 @@ def predict_multi_horizon(current_df: pd.DataFrame) -> dict:
     current_df: recent feature rows (at least LSTM_SEQ_LEN rows), sorted by datetime.
     Returns: {24: {...}, 48: {...}, 72: {...}} with predicted_aqi, category, datetime, all_metrics.
     """
-    project = _get_project()
     latest_row = current_df.iloc[-1]
     latest_time = latest_row["datetime"]
 
     results = {}
     for h in HORIZONS:
-        model, scaler, model_type, all_metrics = load_best_model(project, h)
+        model, scaler, model_type, all_metrics = load_best_model(h)
         predicted_aqi = predict_single(model, scaler, model_type, latest_row, current_df)
         predicted_aqi = max(0.0, predicted_aqi)
         results[h] = {

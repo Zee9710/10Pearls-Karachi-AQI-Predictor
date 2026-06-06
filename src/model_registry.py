@@ -78,20 +78,15 @@ def predict_multi_horizon(current_df: pd.DataFrame) -> dict:
 
 
 def load_historical_features(days: int = 30) -> pd.DataFrame:
-    project = _get_project()
-    fs = project.get_feature_store()
-    from src.config import FEATURE_GROUP_NAME, FEATURE_GROUP_VERSION
-    fg = fs.get_feature_group(FEATURE_GROUP_NAME, version=FEATURE_GROUP_VERSION)
-    fv = fs.get_or_create_feature_view(
-        name="aqi_dashboard_view",
-        version=1,
-        query=fg.select_all(),
-    )
-    df = fv.get_batch_data()
+    # Direct fetch from Open-Meteo instead of the Hopsworks offline store, which
+    # depends on a free-tier Spark materialization job that can stall. Pad the
+    # start by 4 days so lag/rolling features warm up before the requested window.
+    from datetime import date, timedelta
+    from src.feature_pipeline import run_pipeline
+
+    end = date.today() - timedelta(days=1)
+    start = end - timedelta(days=days + 4)
+    df = run_pipeline(start.isoformat(), end.isoformat())
     df = df.sort_values("datetime").reset_index(drop=True)
-    # Handle both tz-aware and tz-naive datetime columns
-    if df["datetime"].dt.tz is not None:
-        cutoff = pd.Timestamp.now(tz=df["datetime"].dt.tz) - pd.Timedelta(days=days)
-    else:
-        cutoff = pd.Timestamp.now() - pd.Timedelta(days=days)
+    cutoff = pd.Timestamp.now(tz=df["datetime"].dt.tz) - pd.Timedelta(days=days)
     return df[df["datetime"] >= cutoff].reset_index(drop=True)

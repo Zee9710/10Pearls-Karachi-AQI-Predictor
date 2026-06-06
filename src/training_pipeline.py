@@ -26,15 +26,16 @@ def _get_project():
 
 
 def load_training_data() -> pd.DataFrame:
-    project = _get_project()
-    fs = project.get_feature_store()
-    fg = fs.get_feature_group(FEATURE_GROUP_NAME, version=FEATURE_GROUP_VERSION)
-    fv = fs.get_or_create_feature_view(
-        name=FEATURE_VIEW_NAME,
-        version=FEATURE_VIEW_VERSION,
-        query=fg.select_all(),
-    )
-    df = fv.get_batch_data()
+    # Direct fetch from Open-Meteo instead of the Hopsworks offline store, which
+    # depends on a free-tier Spark materialization job that can stall for a long
+    # time. end_date is offset 8 days so the weather archive endpoint (vs the
+    # forecast endpoint) is used and the data is fully available.
+    from datetime import date, timedelta
+    from src.feature_pipeline import run_pipeline
+
+    end = date.today() - timedelta(days=8)
+    start = end - timedelta(days=365)
+    df = run_pipeline(start.isoformat(), end.isoformat())
     return df.sort_values("datetime").reset_index(drop=True)
 
 

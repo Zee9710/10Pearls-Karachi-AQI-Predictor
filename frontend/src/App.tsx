@@ -3,6 +3,9 @@ import AlertBanner from './components/AlertBanner'
 import CurrentConditions from './components/CurrentConditions'
 import ForecastChart from './components/ForecastChart'
 import HistoricalChart from './components/HistoricalChart'
+import ModelComparison from './components/ModelComparison'
+import ShapChart from './components/ShapChart'
+import LimeChart from './components/LimeChart'
 import type { CurrentData, ForecastData } from './types'
 
 export default function App() {
@@ -51,6 +54,9 @@ export default function App() {
       {current && <CurrentConditions data={current} />}
       {forecast && <ForecastChart data={forecast} />}
       <HistoricalChart />
+      <ModelComparison />
+      <ShapChart />
+      <LimeChart />
     </div>
   )
 }

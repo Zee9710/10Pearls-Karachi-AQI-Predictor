@@ -22,7 +22,7 @@ export default function ForecastChart({ data }: Props) {
           <XAxis dataKey="horizon" />
           <YAxis domain={[0, 500]} label={{ value: 'AQI', angle: -90, position: 'insideLeft' }} />
           <Tooltip
-            formatter={(val: number) => [val.toFixed(0), '']}
+            formatter={(val) => [Number(val).toFixed(0), '']}
           />
           <ReferenceLine y={150} stroke="#ff7e00" strokeDasharray="4 4" label="Unhealthy" />
           <Bar dataKey="aqi" radius={[4, 4, 0, 0]}>

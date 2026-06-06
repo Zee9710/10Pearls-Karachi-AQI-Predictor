@@ -52,7 +52,7 @@ export default function ShapChart() {
           <BarChart data={chartData} layout="vertical" margin={{ left: 120, right: 20 }}>
             <XAxis type="number" />
             <YAxis type="category" dataKey="feature" width={115} tick={{ fontSize: 11 }} />
-            <Tooltip formatter={(v: number) => v.toFixed(4)} />
+            <Tooltip formatter={(v) => Number(v).toFixed(4)} />
             <Bar dataKey="importance" radius={[0, 4, 4, 0]}>
               {chartData.map((_, i) => (
                 <Cell key={i} fill={`hsl(${220 - i * 12}, 70%, 55%)`} />

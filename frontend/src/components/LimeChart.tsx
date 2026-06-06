@@ -56,7 +56,7 @@ export default function LimeChart() {
           <BarChart data={chartData} layout="vertical" margin={{ left: 140, right: 20 }}>
             <XAxis type="number" label={{ value: 'Contribution to AQI', position: 'insideBottom', offset: -5 }} />
             <YAxis type="category" dataKey="feature" width={135} tick={{ fontSize: 11 }} />
-            <Tooltip formatter={(v: number) => v.toFixed(4)} />
+            <Tooltip formatter={(v) => Number(v).toFixed(4)} />
             <ReferenceLine x={0} stroke="#888" />
             <Bar dataKey="weight" radius={[0, 4, 4, 0]}>
               {chartData.map((entry, i) => (

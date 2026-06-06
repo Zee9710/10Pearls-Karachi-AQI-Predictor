@@ -47,7 +47,7 @@ export default function HistoricalChart() {
             <YAxis domain={[0, 'auto']} label={{ value: 'AQI', angle: -90, position: 'insideLeft' }} />
             <Tooltip
               labelFormatter={v => new Date(v).toLocaleString()}
-              formatter={(val: number) => [val.toFixed(1), 'AQI']}
+              formatter={(val) => [Number(val).toFixed(1), 'AQI']}
             />
             <ReferenceLine y={150} stroke="#ff7e00" strokeDasharray="4 4" />
             <Line type="monotone" dataKey="aqi" stroke="#3b82f6" dot={false} strokeWidth={1.5} />

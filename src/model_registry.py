@@ -66,15 +66,10 @@ def predict_multi_horizon(current_df: pd.DataFrame) -> dict:
 
 
 def load_historical_features(days: int = 30) -> pd.DataFrame:
-    # Direct fetch from Open-Meteo instead of the Hopsworks offline store, which
-    # depends on a free-tier Spark materialization job that can stall. Pad the
-    # start by 4 days so lag/rolling features warm up before the requested window.
-    from datetime import date, timedelta
-    from src.feature_pipeline import run_pipeline
+    from src.feature_store import read_recent
 
-    end = date.today() - timedelta(days=1)
-    start = end - timedelta(days=days + 4)
-    df = run_pipeline(start.isoformat(), end.isoformat())
-    df = df.sort_values("datetime").reset_index(drop=True)
+    df = read_recent(n=days * 24 + 120)
+    if df.empty:
+        return df
     cutoff = pd.Timestamp.now(tz=df["datetime"].dt.tz) - pd.Timedelta(days=days)
     return df[df["datetime"] >= cutoff].reset_index(drop=True)

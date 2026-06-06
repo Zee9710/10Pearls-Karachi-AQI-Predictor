@@ -106,3 +106,21 @@ def run_pipeline(start_date: str, end_date: str) -> pd.DataFrame:
     wx_df = fetch_weather(start_date, end_date)
     df = aq_df.merge(wx_df, on="datetime", how="inner")
     return compute_features(df)
+
+
+def run_hourly_update(lookback_days: int = 10) -> int:
+    """Fetch the most recent window, compute features, and upsert the latest
+    rows into the feature store. The lookback warms up lag/rolling features;
+    the datetime primary key dedupes against rows already stored."""
+    from src.feature_store import upsert_features
+
+    end = date.today()
+    start = end - timedelta(days=lookback_days)
+    df = run_pipeline(start.isoformat(), end.isoformat())
+    n = upsert_features(df)
+    print(f"Upserted {n} feature rows (through {end})")
+    return n
+
+
+if __name__ == "__main__":
+    run_hourly_update()

@@ -15,16 +15,13 @@ from src.config import (
 
 
 def load_training_data() -> pd.DataFrame:
-    # Direct fetch from Open-Meteo instead of the Hopsworks offline store, which
-    # depends on a free-tier Spark materialization job that can stall for a long
-    # time. end_date is offset 8 days so the weather archive endpoint (vs the
-    # forecast endpoint) is used and the data is fully available.
-    from datetime import date, timedelta
-    from src.feature_pipeline import run_pipeline
+    from src.feature_store import read_features
 
-    end = date.today() - timedelta(days=8)
-    start = end - timedelta(days=365)
-    df = run_pipeline(start.isoformat(), end.isoformat())
+    df = read_features()
+    if df.empty:
+        raise RuntimeError(
+            "Feature store is empty. Run `python -m src.backfill` first to seed it."
+        )
     return df.sort_values("datetime").reset_index(drop=True)
 
 

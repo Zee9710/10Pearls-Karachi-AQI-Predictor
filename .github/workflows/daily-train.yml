@@ -23,6 +23,9 @@ jobs:
         run: pip install -r requirements-train.txt
 
       - name: Run training pipeline
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
         run: python -m src.training_pipeline
 
       - name: Commit updated models

@@ -5,7 +5,7 @@ import numpy as np
 from src.model_registry import (
     predict_multi_horizon, load_historical_features, load_best_model,
 )
-from src.feature_pipeline import run_pipeline
+from src.feature_store import read_recent
 from src.aqi import aqi_category
 from src.config import ALERT_THRESHOLD, HORIZONS, TABULAR_FEATURES, LSTM_RAW_FEATURES
 
@@ -13,9 +13,7 @@ bp = Blueprint("api", __name__, url_prefix="/api")
 
 
 def _get_current_df():
-    today = datetime.utcnow().date().isoformat()
-    start = (datetime.utcnow() - timedelta(hours=80)).date().isoformat()
-    return run_pipeline(start, today)
+    return read_recent(n=200)
 
 
 @bp.route("/current")

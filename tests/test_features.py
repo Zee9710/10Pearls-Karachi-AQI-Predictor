@@ -99,3 +99,60 @@ def test_fetch_weather_no_nans():
     with patch("requests.get", return_value=mock_resp):
         df = fetch_weather("2024-01-01", "2024-01-05")
     assert df["temperature_2m"].isna().sum() == 0
+
+
+from src.feature_pipeline import compute_features
+
+
+def _make_raw_df(n: int = 200) -> pd.DataFrame:
+    dates = pd.date_range("2024-01-01", periods=n, freq="h")
+    rng = np.random.default_rng(42)
+    return pd.DataFrame({
+        "datetime": dates,
+        "pm2_5": rng.uniform(5, 150, n),
+        "pm10": rng.uniform(10, 200, n),
+        "ozone": rng.uniform(20, 100, n),
+        "nitrogen_dioxide": rng.uniform(5, 50, n),
+        "sulphur_dioxide": rng.uniform(2, 30, n),
+        "carbon_monoxide": rng.uniform(200, 2000, n),
+        "temperature_2m": rng.uniform(20, 45, n),
+        "relative_humidity_2m": rng.uniform(30, 80, n),
+        "wind_speed_10m": rng.uniform(0, 20, n),
+        "precipitation": np.zeros(n),
+        "surface_pressure": rng.uniform(990, 1010, n),
+    })
+
+
+def test_compute_features_returns_dataframe():
+    df = compute_features(_make_raw_df(200))
+    assert isinstance(df, pd.DataFrame)
+
+
+def test_compute_features_has_aqi():
+    df = compute_features(_make_raw_df(200))
+    assert "aqi" in df.columns
+    assert (df["aqi"] >= 0).all()
+
+
+def test_compute_features_no_nan():
+    df = compute_features(_make_raw_df(200))
+    assert not df.isnull().any().any(), df.isnull().sum()[df.isnull().sum() > 0]
+
+
+def test_compute_features_expected_columns():
+    df = compute_features(_make_raw_df(200))
+    expected = [
+        "aqi", "hour_sin", "hour_cos", "dow_sin", "dow_cos",
+        "month_sin", "month_cos", "is_weekend",
+        "aqi_lag_1h", "aqi_lag_24h", "aqi_lag_48h", "aqi_lag_72h",
+        "aqi_roll24_mean", "aqi_roll24_std", "aqi_roll72_mean", "aqi_roll72_max",
+        "aqi_change_24h", "temp_humidity", "wind_pollution",
+    ]
+    for col in expected:
+        assert col in df.columns, f"Missing: {col}"
+
+
+def test_compute_features_drops_initial_nan_rows():
+    df = compute_features(_make_raw_df(200))
+    assert len(df) < 200
+    assert len(df) > 0

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import requests
+import numpy as np
 import pandas as pd
 from datetime import date, timedelta
 
@@ -58,3 +59,50 @@ def fetch_weather(start_date: str, end_date: str) -> pd.DataFrame:
         resp.json(),
         ["temperature_2m", "relative_humidity_2m", "wind_speed_10m", "precipitation", "surface_pressure"],
     )
+
+
+from src.aqi import compute_aqi
+
+
+def compute_features(df: pd.DataFrame) -> pd.DataFrame:
+    df = df.copy().sort_values("datetime").reset_index(drop=True)
+
+    df["aqi"] = df.apply(
+        lambda r: compute_aqi(
+            r["pm2_5"], r["pm10"], r["ozone"],
+            r["nitrogen_dioxide"], r["sulphur_dioxide"], r["carbon_monoxide"],
+        ),
+        axis=1,
+    )
+
+    df["hour_sin"] = np.sin(2 * np.pi * df["datetime"].dt.hour / 24)
+    df["hour_cos"] = np.cos(2 * np.pi * df["datetime"].dt.hour / 24)
+    df["dow_sin"] = np.sin(2 * np.pi * df["datetime"].dt.dayofweek / 7)
+    df["dow_cos"] = np.cos(2 * np.pi * df["datetime"].dt.dayofweek / 7)
+    df["month_sin"] = np.sin(2 * np.pi * df["datetime"].dt.month / 12)
+    df["month_cos"] = np.cos(2 * np.pi * df["datetime"].dt.month / 12)
+    df["is_weekend"] = (df["datetime"].dt.dayofweek >= 5).astype(int)
+
+    df["aqi_lag_1h"] = df["aqi"].shift(1)
+    df["aqi_lag_24h"] = df["aqi"].shift(24)
+    df["aqi_lag_48h"] = df["aqi"].shift(48)
+    df["aqi_lag_72h"] = df["aqi"].shift(72)
+
+    df["aqi_roll24_mean"] = df["aqi"].shift(1).rolling(24).mean()
+    df["aqi_roll24_std"] = df["aqi"].shift(1).rolling(24).std()
+    df["aqi_roll72_mean"] = df["aqi"].shift(1).rolling(72).mean()
+    df["aqi_roll72_max"] = df["aqi"].shift(1).rolling(72).max()
+
+    df["aqi_change_24h"] = df["aqi"].diff(24)
+    df["temp_humidity"] = df["temperature_2m"] * df["relative_humidity_2m"]
+    df["wind_pollution"] = df["wind_speed_10m"] * df["pm2_5"]
+
+    df = df.dropna().reset_index(drop=True)
+    return df
+
+
+def run_pipeline(start_date: str, end_date: str) -> pd.DataFrame:
+    aq_df = fetch_air_quality(start_date, end_date)
+    wx_df = fetch_weather(start_date, end_date)
+    df = aq_df.merge(wx_df, on="datetime", how="inner")
+    return compute_features(df)

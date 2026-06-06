@@ -11,7 +11,7 @@ def backfill(months: int = 12) -> None:
 
     while current < end:
         chunk_end = min(current + timedelta(days=chunk_days), end)
-        print(f"Backfilling {current} → {chunk_end}")
+        print(f"Backfilling {current} -> {chunk_end}")
         df = run_pipeline(current.isoformat(), chunk_end.isoformat())
         write_to_feature_store(df)
         current = chunk_end + timedelta(days=1)

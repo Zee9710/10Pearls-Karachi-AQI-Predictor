@@ -1,3 +1,13 @@
+---
+title: Karachi AQI Predictor
+emoji: 🌫️
+colorFrom: blue
+colorTo: gray
+sdk: docker
+app_port: 5000
+pinned: false
+---
+
 # Karachi AQI Predictor
 
 End-to-end machine learning pipeline for hourly AQI forecasting in Karachi, Pakistan.
@@ -5,12 +15,11 @@ End-to-end machine learning pipeline for hourly AQI forecasting in Karachi, Paki
 ## Stack
 
 - **Data**: Open-Meteo API (free, no key required)
-- **Feature Store**: Hopsworks (free tier)
-- **Models**: Ridge, Random Forest, XGBoost, LightGBM, LSTM — 5 models × 3 horizons (24h/48h/72h)
+- **Models**: Ridge, Random Forest, XGBoost, LightGBM, LSTM — 5 models × 3 horizons (24h/48h/72h); champions saved to `models/` and committed to git
 - **Explainability**: SHAP (global) + LIME (per-prediction)
-- **API**: Flask + Flask-CORS
-- **Frontend**: React 18 + TypeScript + Vite + Recharts + Tailwind CSS
-- **CI/CD**: GitHub Actions (hourly feature pipeline + daily training)
+- **API**: Flask + Flask-CORS (single-origin; serves the built React app)
+- **Frontend**: React 19 + TypeScript + Vite + Recharts + Tailwind CSS
+- **CI/CD**: GitHub Actions (daily training auto-commits refreshed models)
 
 ## Setup
 

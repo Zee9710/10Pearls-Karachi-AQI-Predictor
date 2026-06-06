@@ -20,7 +20,7 @@ jobs:
           python-version: '3.11'
 
       - name: Install dependencies
-        run: pip install -r requirements.txt
+        run: pip install -r requirements-train.txt
 
       - name: Run training pipeline
         run: python -m src.training_pipeline

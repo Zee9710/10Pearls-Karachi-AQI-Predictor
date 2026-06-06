@@ -89,15 +89,25 @@ ICON_DROP = f'<svg {_S}><path d="M12 2.69l5.66 5.66a8 8 0 1 1-11.31 0z"/></svg>'
 def load_data() -> tuple[pd.DataFrame, str]:
     """Load features from the Feature Store (per spec); fall back to a live
     Open-Meteo fetch so the app still works without Supabase credentials."""
+    store_err = None
     try:
         df = read_recent(n=1000)
         if not df.empty:
             return df, "Feature Store"
-    except Exception:
-        pass
-    end = date.today()
-    start = end - timedelta(days=34)
-    return run_pipeline(start.isoformat(), end.isoformat()), "Live Open-Meteo"
+        store_err = "feature store returned no rows"
+    except Exception as e:
+        store_err = str(e)
+    try:
+        end = date.today()
+        start = end - timedelta(days=34)
+        return run_pipeline(start.isoformat(), end.isoformat()), "Live Open-Meteo"
+    except Exception as live_err:
+        raise RuntimeError(
+            f"Could not load data. Feature Store: {store_err}. "
+            f"Live fallback: {live_err}. "
+            "Set SUPABASE_URL and SUPABASE_KEY in the Streamlit Cloud app "
+            "secrets so the app reads from the Feature Store."
+        ) from live_err
 
 
 def get_historical_df(df: pd.DataFrame, days: int) -> pd.DataFrame:
@@ -212,7 +222,11 @@ st.markdown(
 )
 
 with st.spinner("Fetching latest air-quality data..."):
-    df, source = load_data()
+    try:
+        df, source = load_data()
+    except Exception as e:
+        st.error(str(e))
+        st.stop()
     latest = df.iloc[-1]
     aqi_now = int(latest["aqi"])
     cat_now = aqi_category(aqi_now)

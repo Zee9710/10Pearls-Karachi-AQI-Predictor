@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 import requests
 import numpy as np
 import pandas as pd
@@ -13,6 +14,25 @@ _FORECAST_URL = "https://api.open-meteo.com/v1/forecast"
 _ARCHIVE_URL = "https://archive-api.open-meteo.com/v1/archive"
 _AQ_VARS = "pm2_5,pm10,ozone,nitrogen_dioxide,sulphur_dioxide,carbon_monoxide"
 _WEATHER_VARS = "temperature_2m,relative_humidity_2m,wind_speed_10m,precipitation,surface_pressure"
+
+
+def _get_json(url: str, params: dict, retries: int = 5) -> dict:
+    """GET with backoff on rate limits (429) and transient 5xx errors.
+
+    Open-Meteo's free tier rate-limits by IP; on shared hosts (e.g. Streamlit
+    Cloud) the first call can hit 429, so we honor Retry-After and back off."""
+    delay = 2.0
+    for attempt in range(retries):
+        resp = requests.get(url, params=params, timeout=30)
+        if resp.status_code in (429, 500, 502, 503, 504) and attempt < retries - 1:
+            wait = float(resp.headers.get("Retry-After", delay))
+            time.sleep(min(wait, 30))
+            delay *= 2
+            continue
+        resp.raise_for_status()
+        return resp.json()
+    resp.raise_for_status()
+    return resp.json()
 
 
 def _parse_hourly(data: dict, columns: list[str]) -> pd.DataFrame:
@@ -34,10 +54,8 @@ def fetch_air_quality(start_date: str, end_date: str) -> pd.DataFrame:
         "end_date": end_date,
         "timezone": TIMEZONE,
     }
-    resp = requests.get(_AQ_URL, params=params, timeout=30)
-    resp.raise_for_status()
     return _parse_hourly(
-        resp.json(),
+        _get_json(_AQ_URL, params),
         ["pm2_5", "pm10", "ozone", "nitrogen_dioxide", "sulphur_dioxide", "carbon_monoxide"],
     )
 
@@ -53,10 +71,8 @@ def fetch_weather(start_date: str, end_date: str) -> pd.DataFrame:
         "end_date": end_date,
         "timezone": TIMEZONE,
     }
-    resp = requests.get(url, params=params, timeout=30)
-    resp.raise_for_status()
     return _parse_hourly(
-        resp.json(),
+        _get_json(url, params),
         ["temperature_2m", "relative_humidity_2m", "wind_speed_10m", "precipitation", "surface_pressure"],
     )
 

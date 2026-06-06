@@ -24,15 +24,11 @@ CATEGORY_COLORS = {
 @st.cache_data(ttl=3600)
 def get_current_df() -> pd.DataFrame:
     end = date.today()
-    start = end - timedelta(days=10)
+    start = end - timedelta(days=34)
     return run_pipeline(start.isoformat(), end.isoformat())
 
 
-@st.cache_data(ttl=3600)
-def get_historical_df(days: int) -> pd.DataFrame:
-    end = date.today()
-    start = end - timedelta(days=days + 4)
-    df = run_pipeline(start.isoformat(), end.isoformat())
+def get_historical_df(df: pd.DataFrame, days: int) -> pd.DataFrame:
     cutoff = pd.Timestamp.now(tz=df["datetime"].dt.tz) - pd.Timedelta(days=days)
     return df[df["datetime"] >= cutoff].reset_index(drop=True)
 
@@ -103,7 +99,7 @@ fcol2.dataframe(fc_df, hide_index=True, use_container_width=True)
 # Historical
 st.subheader("Historical AQI")
 days = st.radio("Window", [7, 14, 30], horizontal=True, format_func=lambda d: f"{d} days")
-hist = get_historical_df(days)
+hist = get_historical_df(df, days)
 st.line_chart(hist.set_index("datetime")["aqi"], color="#3b82f6", height=260)
 
 # Model comparison

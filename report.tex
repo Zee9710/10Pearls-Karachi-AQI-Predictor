@@ -1,0 +1,407 @@
+\documentclass[11pt,a4paper]{article}
+
+% ---------- Packages ----------
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage[margin=1in]{geometry}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{xcolor}
+\usepackage{titlesec}
+\usepackage{enumitem}
+\usepackage{caption}
+\usepackage{fancyhdr}
+\usepackage{listings}
+\usepackage[hidelinks]{hyperref}
+
+% ---------- Colors ----------
+\definecolor{primary}{HTML}{1D4ED8}
+\definecolor{slate}{HTML}{334155}
+\definecolor{codebg}{HTML}{F1F5F9}
+
+\hypersetup{
+  colorlinks=true,
+  linkcolor=primary,
+  urlcolor=primary,
+  citecolor=primary
+}
+
+% ---------- Headers / footers ----------
+\pagestyle{fancy}
+\fancyhf{}
+\renewcommand{\headrulewidth}{0.4pt}
+\lhead{\small\textcolor{slate}{Pearls AQI Predictor}}
+\rhead{\small\textcolor{slate}{Project Report}}
+\cfoot{\thepage}
+
+% ---------- Section styling ----------
+\titleformat{\section}{\Large\bfseries\color{primary}}{\thesection}{0.6em}{}
+\titleformat{\subsection}{\large\bfseries\color{slate}}{\thesubsection}{0.6em}{}
+
+% ---------- Code listing style ----------
+\lstset{
+  backgroundcolor=\color{codebg},
+  basicstyle=\ttfamily\small,
+  breaklines=true,
+  frame=single,
+  rulecolor=\color{codebg},
+  framesep=6pt,
+  xleftmargin=6pt,
+  showstringspaces=false
+}
+
+\newcommand{\rsq}{$R^2$}
+
+% ---------- Title ----------
+\title{\vspace{-1cm}\textbf{\color{primary}\Huge Pearls AQI Predictor}\\[0.4cm]
+{\Large A 100\% Serverless End-to-End Machine Learning System\\
+for Forecasting Air Quality in Karachi}}
+\author{Submitted for the 10Pearls AQI Predictor Assignment}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+\thispagestyle{empty}
+
+\begin{abstract}
+\noindent
+This report documents the design and implementation of an end-to-end machine
+learning system that forecasts the Air Quality Index (AQI) for Karachi,
+Pakistan over a three-day horizon (+24h, +48h, +72h). The system is fully
+serverless and runs entirely on free tiers: raw weather and pollutant data are
+fetched from the Open-Meteo API, engineered into 29 features, and persisted in a
+Supabase feature store; five model families spanning statistical to deep-learning
+approaches are trained and benchmarked, with champions promoted to a git-based
+model registry; GitHub Actions automate the feature pipeline hourly and the
+training pipeline daily; and an interactive Streamlit dashboard loads features
+and models from the store to display live and forecasted AQI with SHAP-based
+explanations and hazardous-level alerts. Ridge regression emerged as the
+champion at all three horizons, achieving an RMSE of 21.88 at +24h on a
+chronological hold-out set.
+\end{abstract}
+
+\vspace{0.5cm}
+\begin{center}
+\begin{tabular}{rl}
+\textbf{Live dashboard:} & \url{https://10pearls-karachi-aqi-predictor-v8ygbuwud8du7m3mun22cr.streamlit.app}\\
+\textbf{Source code:} & \url{https://github.com/Zee9710/10Pearls-Karachi-AQI-Predictor}\\
+\textbf{Location:} & Karachi (24.8607\textdegree{} N, 67.0011\textdegree{} E), \texttt{Asia/Karachi}\\
+\end{tabular}
+\end{center}
+
+\newpage
+\tableofcontents
+\newpage
+
+% =====================================================================
+\section{Introduction}
+% =====================================================================
+Air pollution is a persistent public-health concern in Karachi, one of the
+world's most populous cities. The objective of this project is to predict the
+Air Quality Index (AQI) for the next three days using a fully automated,
+serverless machine learning pipeline. The system must fetch raw data, engineer
+features, store them in a feature store, train and evaluate a range of models,
+register the best performers, automate the entire workflow with CI/CD, and
+surface predictions through an interactive dashboard.
+
+The solution adopts the canonical MLOps pattern built around a
+\textbf{feature store} and a \textbf{model registry}. Each stage is decoupled:
+the feature pipeline only writes features, the training pipeline only reads
+features and writes models, and the dashboard only reads. This separation makes
+every component independently testable and replaceable, and allows the feature
+and training pipelines to run on independent schedules.
+
+% =====================================================================
+\section{System Architecture}
+% =====================================================================
+Figure-style overview of the data flow:
+
+\begin{center}
+\begin{lstlisting}[language=,frame=single]
+Open-Meteo API --> Feature Pipeline --> Feature Store (Supabase)
+   (raw data)        feature_pipeline.py     aqi_features table
+                                                    |
+                                  +-----------------+------------------+
+                                  |                                    |
+                          Training Pipeline                    Streamlit Dashboard
+                          training_pipeline.py                  streamlit_app.py
+                                  |                                    ^
+                                  v                                    |
+                          Model Registry  ----------------------------+
+                          (models/ in git)
+
+GitHub Actions:  feature pipeline hourly  *  training pipeline daily
+\end{lstlisting}
+\end{center}
+
+\subsection{Serverless Stack}
+Every component runs on a free tier with no server to maintain.
+
+\begin{center}
+\begin{tabular}{@{}p{3.2cm}p{4.2cm}p{6.0cm}@{}}
+\toprule
+\textbf{Concern} & \textbf{Choice} & \textbf{Rationale} \\
+\midrule
+Raw data & Open-Meteo API & Free, no API key; provides air-quality, weather, and a historical archive endpoint \\
+Feature store & Supabase (Postgres + PostgREST) & Free tier, SQL-queryable, accessed over plain HTTPS \\
+Model registry & \texttt{models/} in git & Zero-cost, versioned, deploys with the app \\
+Orchestration & GitHub Actions & Free cron scheduling, no server \\
+Dashboard & Streamlit Community Cloud & Free hosting with a direct public URL \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+% =====================================================================
+\section{Feature Pipeline}
+% =====================================================================
+The feature pipeline (\texttt{src/feature\_pipeline.py}) performs four steps.
+
+\subsection{Fetch Raw Data}
+Hourly pollutant data (PM2.5, PM10, ozone, NO\textsubscript{2},
+SO\textsubscript{2}, CO) is pulled from Open-Meteo's air-quality endpoint, and
+weather data (temperature, relative humidity, wind speed, precipitation,
+surface pressure) from the forecast/archive endpoints. A retry helper backs off
+on HTTP 429 and 5xx responses and honors the \texttt{Retry-After} header, which
+is important on the shared IP addresses used by cloud hosts.
+
+\subsection{Compute the AQI Target}
+The US-EPA AQI (0--500) is computed from raw pollutant concentrations in
+\texttt{src/aqi.py} using the standard breakpoint piecewise-linear formula,
+taking the maximum sub-index across pollutants.
+
+\subsection{Engineer Features}
+Twenty-nine model inputs are derived:
+
+\begin{itemize}[leftmargin=1.4em]
+  \item \textbf{Cyclical time:} \texttt{hour\_sin/cos}, \texttt{dow\_sin/cos},
+        \texttt{month\_sin/cos}, \texttt{is\_weekend}. Sine/cosine encoding keeps
+        23:00 and 00:00 adjacent in feature space.
+  \item \textbf{Lags:} \texttt{aqi\_lag\_1h}, \texttt{aqi\_lag\_24h},
+        \texttt{aqi\_lag\_48h}, \texttt{aqi\_lag\_72h}.
+  \item \textbf{Rolling statistics:} 24h and 72h rolling mean, standard
+        deviation, and maximum (shifted to prevent leakage).
+  \item \textbf{Change rate:} \texttt{aqi\_change\_24h}, the day-over-day AQI
+        delta required by the assignment.
+  \item \textbf{Interactions:} \texttt{temp\_humidity}, \texttt{wind\_pollution}.
+  \item \textbf{Raw signals:} all six pollutants and five weather variables.
+\end{itemize}
+
+\subsection{Store}
+Features are upserted into the Supabase \texttt{aqi\_features} table, keyed on
+\texttt{datetime}, so re-runs are idempotent and never create duplicate rows.
+
+% =====================================================================
+\section{Backfill}
+% =====================================================================
+To generate training data, the same feature script is run over a one-year range
+of past dates (\texttt{src/backfill.py}). This populated the feature store with
+approximately one year of hourly rows (around 8,900 records). The backfill uses
+the Open-Meteo \emph{archive} endpoint for dates older than seven days and the
+\emph{forecast} endpoint for recent dates.
+
+% =====================================================================
+\section{Training Pipeline}
+% =====================================================================
+The training pipeline (\texttt{src/training\_pipeline.py}) executes three steps.
+
+\subsection{Fetch from the Feature Store}
+The full feature history is read from Supabase. The training stage never touches
+the live raw API, satisfying the requirement that models train on stored
+features.
+
+\subsection{Train and Evaluate}
+For each horizon $h \in \{24, 48, 72\}$, the target is the AQI shifted forward
+by $h$ hours, giving \emph{direct multi-horizon} forecasting. The data is split
+80/20 \emph{chronologically} (no shuffling) to respect time ordering and prevent
+look-ahead leakage. Five model families are trained:
+
+\begin{center}
+\begin{tabular}{@{}ll@{}}
+\toprule
+\textbf{Family} & \textbf{Type} \\
+\midrule
+Ridge Regression (\texttt{RidgeCV}) & Statistical / linear \\
+Random Forest & Bagged decision trees \\
+XGBoost & Gradient boosting \\
+LightGBM & Gradient boosting \\
+LSTM (TensorFlow/Keras) & Deep learning (sequence model) \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+This spans the spectrum from statistical modelling to deep learning. Each model
+is scored on RMSE, MAE, and \rsq{}; the lowest-RMSE model per horizon is
+promoted to champion.
+
+\subsection{Register}
+The champion model, its scaler, and its metrics are written to
+\texttt{models/aqi\_best\_\{24,48,72\}h/} and committed to git by the daily CI
+job.
+
+% =====================================================================
+\section{Results}
+% =====================================================================
+AQI is on the 0--500 EPA scale; all metrics are computed on the chronological
+20\% hold-out tail.
+
+\subsection{Champion per Horizon}
+\begin{center}
+\begin{tabular}{@{}lcccc@{}}
+\toprule
+\textbf{Horizon} & \textbf{Champion} & \textbf{RMSE} & \textbf{MAE} & \textbf{\rsq{}} \\
+\midrule
++24h & Ridge & 21.88 & 15.53 & 0.308 \\
++48h & Ridge & 24.59 & 18.07 & 0.128 \\
++72h & Ridge & 25.47 & 18.99 & 0.065 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection{Full Model Comparison (RMSE)}
+\begin{center}
+\begin{tabular}{@{}lccc@{}}
+\toprule
+\textbf{Model} & \textbf{+24h} & \textbf{+48h} & \textbf{+72h} \\
+\midrule
+\textbf{Ridge} & \textbf{21.88} & \textbf{24.59} & \textbf{25.47} \\
+Random Forest  & 22.95 & 28.86 & 28.05 \\
+XGBoost        & 23.74 & 28.30 & 27.10 \\
+LightGBM       & 24.24 & 28.64 & 27.49 \\
+LSTM           & 29.81 & 29.90 & 29.60 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection{Discussion}
+\begin{itemize}[leftmargin=1.4em]
+  \item \textbf{Ridge wins at every horizon.} With roughly 8,900 hourly rows and
+        strongly autocorrelated lag features, the linear model generalizes
+        better than the tree ensembles and the LSTM, which overfit (negative
+        \rsq{} on the held-out tail at the longer horizons).
+  \item \textbf{Accuracy decays with horizon}, as expected: +24h is the most
+        predictable (\rsq{} $\approx$ 0.31), while +72h approaches the
+        persistence baseline (\rsq{} $\approx$ 0.07).
+  \item \textbf{The LSTM is data-starved.} Deep sequence models typically need
+        far more data than is currently available; the LSTM is retained to
+        demonstrate the full statistical-to-deep-learning spectrum and should be
+        re-benchmarked as the feature store grows hourly.
+\end{itemize}
+
+% =====================================================================
+\section{CI/CD Automation}
+% =====================================================================
+Two GitHub Actions workflows automate the system end to end.
+
+\begin{center}
+\begin{tabular}{@{}p{3.6cm}p{3.2cm}p{6.4cm}@{}}
+\toprule
+\textbf{Workflow} & \textbf{Schedule} & \textbf{Action} \\
+\midrule
+\texttt{hourly-feature.yml} & \texttt{0 * * * *} (hourly) & Fetch the latest window, compute features, upsert to the store \\
+\texttt{daily-train.yml} & \texttt{0 3 * * *} (daily) & Read the store, retrain all models, commit updated champions \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Both authenticate to Supabase via repository secrets
+(\texttt{SUPABASE\_URL}, \texttt{SUPABASE\_KEY}) and require no server. The
+training job installs \texttt{requirements-train.txt} (adding TensorFlow on top
+of the base requirements) and pushes refreshed models back to the repository.
+
+% =====================================================================
+\section{Web Application}
+% =====================================================================
+The dashboard (\texttt{streamlit\_app.py}) is deployed on Streamlit Community
+Cloud and styled after the IQAir interface.
+
+\subsection{Loads Model and Features from the Feature Store}
+On load, the app reads the most recent feature rows directly from Supabase and
+loads the champion models from the registry. If credentials are absent it falls
+back to a live Open-Meteo fetch so the demo still works; the active source is
+shown in the interface.
+
+\subsection{Displays Predictions}
+The dashboard presents:
+\begin{itemize}[leftmargin=1.4em]
+  \item Current AQI with a category ring, health advisory, and WHO PM2.5
+        multiplier.
+  \item A live status pill showing the data source and last update time.
+  \item Six pollutant concentration cards.
+  \item Three-day forecast cards (+24h / +48h / +72h) with color-coded
+        categories.
+  \item A historical AQI trend chart (7 / 14 / 30 day windows).
+  \item A model-performance section comparing RMSE across all five models per
+        horizon, with the champion highlighted.
+  \item A SHAP feature-importance section explaining which inputs drive each
+        forecast.
+\end{itemize}
+
+\subsection{Hazardous-AQI Alerts}
+When a forecast crosses the alert threshold (AQI 150, ``Unhealthy''), the
+dashboard surfaces a prominent warning.
+
+% =====================================================================
+\section{Exploratory Data Analysis and Guidelines}
+% =====================================================================
+The notebook \texttt{notebooks/eda.ipynb} examines pollutant distributions,
+feature correlations, and time-of-day and seasonal trends in the AQI signal,
+informing the choice of lag and rolling features. The table below maps each
+assignment guideline to its implementation.
+
+\begin{center}
+\begin{tabular}{@{}p{6.0cm}p{8.0cm}@{}}
+\toprule
+\textbf{Guideline} & \textbf{Implementation} \\
+\midrule
+EDA to identify trends & \texttt{notebooks/eda.ipynb} \\
+Variety of models (statistical $\rightarrow$ deep learning) & Ridge, Random Forest, XGBoost, LightGBM, LSTM \\
+SHAP / LIME explainability & SHAP in the dashboard; LIME in the optional Flask API \\
+Alerts for hazardous AQI & Threshold alert at AQI 150 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+% =====================================================================
+\section{Deliverables Checklist}
+% =====================================================================
+\begin{enumerate}[leftmargin=1.6em]
+  \item \textbf{End-to-end AQI prediction system} --- complete
+        (data $\rightarrow$ features $\rightarrow$ models $\rightarrow$ predictions).
+  \item \textbf{Scalable, automated pipeline} --- complete (hourly and daily
+        GitHub Actions; idempotent feature store).
+  \item \textbf{Interactive dashboard} --- complete (live and forecasted AQI on
+        Streamlit Cloud).
+  \item \textbf{Detailed report} --- this document.
+\end{enumerate}
+
+% =====================================================================
+\section{Limitations and Future Work}
+% =====================================================================
+\begin{itemize}[leftmargin=1.4em]
+  \item \textbf{Forecast skill at long horizons.} +72h \rsq{} is low; richer
+        exogenous signals (wind direction, regional transport, traffic) could
+        improve it.
+  \item \textbf{LSTM needs more data.} As the hourly pipeline accumulates
+        history, the deep model should be re-benchmarked.
+  \item \textbf{Single location.} The pipeline is parameterized by latitude and
+        longitude in \texttt{src/config.py} and could be extended to multiple
+        cities.
+  \item \textbf{Git-based model registry.} Adequate at this scale; a managed
+        registry such as MLflow would be the next step for model lineage in a
+        larger team.
+\end{itemize}
+
+\vspace{0.5cm}
+\hrule
+\vspace{0.3cm}
+\noindent\small\textit{Reproduce locally:}
+\begin{lstlisting}[language=bash]
+pip install -r requirements-train.txt
+python -m src.backfill            # populate the feature store
+python -m src.training_pipeline   # train + register champions
+streamlit run streamlit_app.py    # launch the dashboard
+\end{lstlisting}
+
+\end{document}

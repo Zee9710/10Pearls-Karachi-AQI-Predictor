@@ -273,6 +273,10 @@ with st.spinner("Fetching latest air-quality data..."):
     except Exception as e:
         st.error(str(e))
         st.stop()
+    # Open-Meteo returns the whole current day (including future hours), so the
+    # raw last row is a forecast. Trim to the current hour for a true "now".
+    now = pd.Timestamp.now(tz=df["datetime"].dt.tz)
+    df = df[df["datetime"] <= now].reset_index(drop=True)
     latest = df.iloc[-1]
     aqi_now = int(latest["aqi"])
     cat_now = aqi_category(aqi_now)
